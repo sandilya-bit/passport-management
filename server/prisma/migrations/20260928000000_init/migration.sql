@@ -309,7 +309,11 @@ ALTER TABLE "appointments"
     ADD CONSTRAINT "appointments_no_overlapping_slots"
     EXCLUDE USING gist (
         "center" WITH =,
-        tstzrange("startsAt", "startsAt" + INTERVAL '30 minutes', '[)') WITH &&
+        tsrange(
+            "startsAt" AT TIME ZONE 'UTC',
+            ("startsAt" AT TIME ZONE 'UTC') + INTERVAL '30 minutes',
+            '[)'
+        ) WITH &&
     ) WHERE ("status" IN ('BOOKED', 'RESCHEDULED'));
 
 CREATE OR REPLACE FUNCTION enforce_application_status_transition()
