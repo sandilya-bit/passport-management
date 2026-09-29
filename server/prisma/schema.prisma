@@ -1,0 +1,249 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  APPLICANT
+  OFFICER
+  ADMIN
+}
+
+enum ApplicationType {
+  FRESH
+  REISSUE
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  DOCUMENTS_REQUIRED
+  APPOINTMENT_BOOKED
+  VERIFIED
+  APPROVED
+  REJECTED
+  PASSPORT_ISSUED
+  CANCELLED
+}
+
+enum DocumentKind {
+  IDENTITY
+  ADDRESS
+  DATE_OF_BIRTH
+  PHOTOGRAPH
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum AppointmentStatus {
+  BOOKED
+  RESCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PassportStatus {
+  GENERATED
+  ISSUED
+  REVOKED
+}
+
+model User {
+  id                String         @id @default(cuid()) @db.VarChar(30)
+  email             String         @unique @db.VarChar(254)
+  passwordHash      String         @db.VarChar(255)
+  role              Role           @default(APPLICANT)
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(6)
+  applicant         Applicant?
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+  uploadedDocuments Document[]    @relation("DocumentUploader")
+  reviewedDocuments Document[]    @relation("DocumentReviewer")
+  appointments      Appointment[] @relation("AppointmentBooker")
+  verifications     Verification[] @relation("VerificationReviewer")
+
+  @@index([role, isActive])
+  @@map("users")
+}
+
+model Applicant {
+  id           String        @id @default(cuid()) @db.VarChar(30)
+  userId       String        @unique @db.VarChar(30)
+  firstName    String        @db.VarChar(100)
+  lastName     String        @db.VarChar(100)
+  dateOfBirth  DateTime      @db.Date
+  phone        String        @db.VarChar(20)
+  address      String        @db.VarChar(500)
+  city         String        @db.VarChar(100)
+  state        String        @db.VarChar(100)
+  postalCode   String        @db.VarChar(20)
+  createdAt    DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(6)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  applications Application[]
+
+  @@index([lastName, firstName])
+  @@index([phone])
+  @@map("applicants")
+}
+
+model Application {
+  id                String            @id @default(cuid()) @db.VarChar(30)
+  applicationNumber String            @unique @db.VarChar(32)
+  applicantId       String            @db.VarChar(30)
+  type              ApplicationType
+  status            ApplicationStatus @default(DRAFT)
+  notes             String?           @db.VarChar(2000)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(6)
+  applicant         Applicant         @relation(fields: [applicantId], references: [id], onDelete: Restrict)
+  documents         Document[]
+  appointments      Appointment[]
+  payments          Payment[]
+  verifications     Verification[]
+  passport          Passport?
+
+  @@index([applicantId, createdAt])
+  @@index([status, createdAt])
+  @@map("applications")
+}
+
+model Document {
+  id                 String         @id @default(cuid()) @db.VarChar(30)
+  applicationId      String         @db.VarChar(30)
+  uploadedById       String         @db.VarChar(30)
+  reviewedById       String?        @db.VarChar(30)
+  kind               DocumentKind
+  status             DocumentStatus @default(PENDING)
+  originalName       String         @db.VarChar(255)
+  mimeType           String         @db.VarChar(100)
+  sizeBytes          Int
+  sha256             String         @db.Char(64)
+  cloudinaryPublicId String         @unique @db.VarChar(255)
+  secureUrl          String         @db.VarChar(2048)
+  reviewRemarks      String?        @db.VarChar(1000)
+  createdAt          DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(6)
+  application        Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  uploadedBy         User           @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  reviewedBy         User?          @relation("DocumentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([applicationId, status])
+  @@index([uploadedById, createdAt])
+  @@map("documents")
+}
+
+model Appointment {
+  id            String            @id @default(cuid()) @db.VarChar(30)
+  applicationId String            @db.VarChar(30)
+  bookedById    String            @db.VarChar(30)
+  center        String            @db.VarChar(200)
+  startsAt      DateTime          @db.Timestamptz(6)
+  status        AppointmentStatus @default(BOOKED)
+  createdAt     DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime          @updatedAt @db.Timestamptz(6)
+  application   Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  bookedBy      User              @relation("AppointmentBooker", fields: [bookedById], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, startsAt])
+  @@index([center, startsAt, status])
+  @@map("appointments")
+}
+
+model Payment {
+  id            String        @id @default(cuid()) @db.VarChar(30)
+  applicationId String        @db.VarChar(30)
+  amount        Decimal       @db.Decimal(10, 2)
+  currency      String        @default("INR") @db.Char(3)
+  status        PaymentStatus @default(PENDING)
+  providerRef   String?       @unique @db.VarChar(255)
+  receiptNumber String        @unique @db.VarChar(32)
+  paidAt        DateTime?     @db.Timestamptz(6)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(6)
+  application   Application   @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, createdAt])
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+model Verification {
+  id            String             @id @default(cuid()) @db.VarChar(30)
+  applicationId String             @db.VarChar(30)
+  reviewerId    String             @db.VarChar(30)
+  status        VerificationStatus
+  remarks       String             @db.VarChar(2000)
+  reviewedAt    DateTime           @default(now()) @db.Timestamptz(6)
+  application   Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer      User               @relation("VerificationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, reviewedAt])
+  @@index([reviewerId, reviewedAt])
+  @@map("verifications")
+}
+
+model Passport {
+  id             String        @id @default(cuid()) @db.VarChar(30)
+  applicationId  String        @unique @db.VarChar(30)
+  passportNumber String        @unique @db.VarChar(20)
+  status         PassportStatus @default(GENERATED)
+  issuedAt       DateTime?     @db.Timestamptz(6)
+  expiresAt      DateTime?     @db.Timestamptz(6)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(6)
+  application    Application   @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([status, issuedAt])
+  @@map("passports")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid()) @db.VarChar(30)
+  userId    String    @db.VarChar(30)
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime  @db.Timestamptz(6)
+  revokedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid()) @db.VarChar(30)
+  userId    String    @db.VarChar(30)
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt, expiresAt])
+  @@map("password_resets")
+}
