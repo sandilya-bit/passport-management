@@ -10,4 +10,4 @@ COPY server ./server
 RUN npm run build:api && npm prune --omit=dev
 ENV NODE_ENV=production
 EXPOSE 4000
-CMD ["npm", "run", "start:api"]
+CMD ["sh", "-c", "npm run db:migrate && npm run start:api"]
